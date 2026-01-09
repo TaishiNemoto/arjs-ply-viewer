@@ -7,23 +7,32 @@
 
   <script src="https://unpkg.com/aframe@1.5.0/dist/aframe.min.js"></script>
   <script src="https://unpkg.com/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/examples/js/loaders/PLYLoader.js"></script>
+
+  <!-- A-FrameのTHREEに合わせて、近い世代のPLYLoaderを読み込む -->
+  <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/PLYLoader.js"></script>
 
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; }
     #hud {
       position: fixed; left: 10px; top: 10px; z-index: 9999;
       padding: 8px 10px; border-radius: 10px;
-      background: rgba(0,0,0,.55); color:#fff;
+      background: rgba(0,0,0,.60); color:#fff;
       font: 13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
       max-width: 92vw;
+      white-space: pre-wrap;
     }
   </style>
 
   <script>
+    // Safariで詰まった時に原因が見えるようにする
+    window.addEventListener("error", (e) => {
+      const hud = document.getElementById("hud");
+      if (hud) hud.textContent = "JSエラー:\n" + (e.message || e.error || "unknown");
+    });
+
     AFRAME.registerComponent("ply-pointcloud", {
       schema: {
-        src:       { type: "string", default: "./model.ply" },
+        src:       { type: "string", default: "./web-model.ply" }, // ここ重要
         scale:     { type: "number", default: 0.01 },
         pointSize: { type: "number", default: 0.02 },
         color:     { type: "color",  default: "#ffffff" },
@@ -37,15 +46,21 @@
         const hud = document.getElementById("hud");
         const setHUD = (m) => { if (hud) hud.textContent = m; };
 
-        if (!THREE.PLYLoader) { setHUD("PLYLoaderが読み込めていません"); return; }
+        if (!window.THREE || !THREE.PLYLoader) {
+          setHUD("THREE/PLYLoaderが読み込めていません（CDNを確認）");
+          return;
+        }
 
-        setHUD("PLY 読み込み中…");
+        setHUD("PLY 読み込み開始:\n" + d.src);
 
         const loader = new THREE.PLYLoader();
         loader.load(
           d.src,
           (geometry) => {
-            if (!geometry?.attributes?.position) { setHUD("PLYのposition属性がありません"); return; }
+            if (!geometry?.attributes?.position) {
+              setHUD("PLYのposition属性がありません");
+              return;
+            }
 
             geometry.computeBoundingBox();
             const center = new THREE.Vector3();
@@ -54,7 +69,10 @@
 
             let g = geometry;
             const total = g.attributes.position.count;
-            if (d.maxPoints > 0 && total > d.maxPoints) g = downsample(g, d.maxPoints);
+
+            if (d.maxPoints > 0 && total > d.maxPoints) {
+              g = downsample(g, d.maxPoints);
+            }
 
             const hasVertexColor = !!g.getAttribute("color");
             const mat = new THREE.PointsMaterial({
@@ -70,17 +88,24 @@
             while (el.object3D.children.length) el.object3D.remove(el.object3D.children[0]);
             el.object3D.add(pts);
 
-            setHUD(`表示: ${g.attributes.position.count.toLocaleString()} 点 / 元: ${total.toLocaleString()} 点`);
+            setHUD(
+              "読み込み完了\n" +
+              "表示: " + g.attributes.position.count.toLocaleString() + " 点\n" +
+              "元: " + total.toLocaleString() + " 点\n" +
+              "マーカーを映してください"
+            );
           },
           (xhr) => {
             if (xhr && xhr.total) {
               const p = Math.round((xhr.loaded / xhr.total) * 100);
-              setHUD(`PLY 読み込み中: ${p}%`);
+              setHUD("PLY 読み込み中: " + p + "%\n" + d.src);
+            } else {
+              setHUD("PLY 読み込み中…\n" + d.src);
             }
           },
           (err) => {
-            setHUD("PLY読み込み失敗（パス/ファイル名/容量を確認）");
-            console.error(err);
+            setHUD("PLY読み込み失敗\n" + d.src + "\n" + (err?.message || err || ""));
+            console.error("PLY load error:", err);
           }
         );
 
@@ -119,15 +144,18 @@
 <body>
   <div id="hud">起動中…</div>
 
-  <a-scene embedded vr-mode-ui="enabled:false"
-           renderer="antialias:true; colorManagement:true"
-           arjs="sourceType: webcam; debugUIEnabled:false;">
+  <a-scene
+    embedded
+    vr-mode-ui="enabled:false"
+    renderer="antialias:true; colorManagement:true"
+    arjs="sourceType: webcam; debugUIEnabled:false;"
+  >
     <a-entity light="type: ambient; intensity: 1.0"></a-entity>
 
     <a-marker type="pattern" url="./default-marker.patt">
       <a-entity
         ply-pointcloud="
-          src: ./model.ply;
+          src: ./web-model.ply;
           scale: 0.01;
           pointSize: 0.02;
           color: #ffffff;
@@ -142,3 +170,4 @@
   </a-scene>
 </body>
 </html>
+
