@@ -3,171 +3,162 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-  <title>AR.js + PointCloud PLY (iPhone)</title>
-
-  <script src="https://unpkg.com/aframe@1.5.0/dist/aframe.min.js"></script>
-  <script src="https://unpkg.com/ar.js@3.4.5/aframe/build/aframe-ar.js"></script>
-
-  <!-- A-FrameのTHREEに合わせて、近い世代のPLYLoaderを読み込む -->
-  <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/PLYLoader.js"></script>
+  <title>AR.js PLY Diagnostic</title>
 
   <style>
     html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#000; }
-    #hud {
-      position: fixed; left: 10px; top: 10px; z-index: 9999;
-      padding: 8px 10px; border-radius: 10px;
-      background: rgba(0,0,0,.60); color:#fff;
-      font: 13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
-      max-width: 92vw;
-      white-space: pre-wrap;
+    #hud{
+      position:fixed; left:10px; top:10px; z-index:99999;
+      padding:10px 12px; border-radius:10px;
+      background:rgba(0,0,0,.65); color:#fff;
+      font:13px/1.4 -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial;
+      max-width:92vw; white-space:pre-wrap;
     }
   </style>
 
   <script>
-    // Safariで詰まった時に原因が見えるようにする
-    window.addEventListener("error", (e) => {
+    // いちばん最初にエラー捕捉を仕込む（外部ライブラリが死んでも表示できるように）
+    function log(msg){
       const hud = document.getElementById("hud");
-      if (hud) hud.textContent = "JSエラー:\n" + (e.message || e.error || "unknown");
+      if (hud) hud.textContent += "\n" + msg;
+    }
+    window.addEventListener("error", (e) => {
+      log("JSエラー: " + (e.message || "unknown"));
     });
+    window.addEventListener("unhandledrejection", (e) => {
+      log("Promiseエラー: " + (e.reason?.message || e.reason || "unknown"));
+    });
+  </script>
 
-    AFRAME.registerComponent("ply-pointcloud", {
-      schema: {
-        src:       { type: "string", default: "./web-model.ply" }, // ここ重要
-        scale:     { type: "number", default: 0.01 },
-        pointSize: { type: "number", default: 0.02 },
-        color:     { type: "color",  default: "#ffffff" },
-        maxPoints: { type: "int",    default: 80000 },
-        rotateX:   { type: "number", default: 0 }
-      },
+  <!-- どこまで読み込めたかをHUDに出す -->
+  <script>
+    document.addEventListener("DOMContentLoaded", () => log("DOM loaded"));
+    setTimeout(() => log("5秒経過: ここまで来てるか確認"), 5000);
+  </script>
 
-      init() {
-        const el = this.el;
-        const d  = this.data;
-        const hud = document.getElementById("hud");
-        const setHUD = (m) => { if (hud) hud.textContent = m; };
+  <script
+    src="https://unpkg.com/aframe@1.5.0/dist/aframe.min.js"
+    onload="log('A-Frame loaded')"
+    onerror="log('A-Frame load failed')"
+  ></script>
 
-        if (!window.THREE || !THREE.PLYLoader) {
-          setHUD("THREE/PLYLoaderが読み込めていません（CDNを確認）");
-          return;
-        }
+  <script
+    src="https://unpkg.com/ar.js@3.4.5/aframe/build/aframe-ar.js"
+    onload="log('AR.js loaded')"
+    onerror="log('AR.js load failed')"
+  ></script>
 
-        setHUD("PLY 読み込み開始:\n" + d.src);
+  <!-- A-Frameが使っているTHREEに合わせる -->
+  <script
+    src="https://unpkg.com/three@0.152.2/examples/js/loaders/PLYLoader.js"
+    onload="log('PLYLoader loaded')"
+    onerror="log('PLYLoader load failed')"
+  ></script>
 
-        const loader = new THREE.PLYLoader();
-        loader.load(
-          d.src,
-          (geometry) => {
-            if (!geometry?.attributes?.position) {
-              setHUD("PLYのposition属性がありません");
-              return;
-            }
+  <script>
+    // ここまで来たら「自前JSは動いてる」
+    log("inline script running");
 
-            geometry.computeBoundingBox();
-            const center = new THREE.Vector3();
-            geometry.boundingBox.getCenter(center);
-            geometry.translate(-center.x, -center.y, -center.z);
-
-            let g = geometry;
-            const total = g.attributes.position.count;
-
-            if (d.maxPoints > 0 && total > d.maxPoints) {
-              g = downsample(g, d.maxPoints);
-            }
-
-            const hasVertexColor = !!g.getAttribute("color");
-            const mat = new THREE.PointsMaterial({
-              size: d.pointSize,
-              vertexColors: hasVertexColor,
-              color: new THREE.Color(d.color)
-            });
-
-            const pts = new THREE.Points(g, mat);
-            pts.scale.setScalar(d.scale);
-            if (d.rotateX) pts.rotation.x = THREE.MathUtils.degToRad(d.rotateX);
-
-            while (el.object3D.children.length) el.object3D.remove(el.object3D.children[0]);
-            el.object3D.add(pts);
-
-            setHUD(
-              "読み込み完了\n" +
-              "表示: " + g.attributes.position.count.toLocaleString() + " 点\n" +
-              "元: " + total.toLocaleString() + " 点\n" +
-              "マーカーを映してください"
-            );
-          },
-          (xhr) => {
-            if (xhr && xhr.total) {
-              const p = Math.round((xhr.loaded / xhr.total) * 100);
-              setHUD("PLY 読み込み中: " + p + "%\n" + d.src);
-            } else {
-              setHUD("PLY 読み込み中…\n" + d.src);
-            }
-          },
-          (err) => {
-            setHUD("PLY読み込み失敗\n" + d.src + "\n" + (err?.message || err || ""));
-            console.error("PLY load error:", err);
-          }
-        );
-
-        function downsample(src, target) {
-          const pos = src.getAttribute("position");
-          const col = src.getAttribute("color");
-          const total = pos.count;
-          const step = total / target;
-
-          const newPos = new Float32Array(target * 3);
-          const newCol = col ? new Float32Array(target * 3) : null;
-
-          for (let i = 0; i < target; i++) {
-            const base = Math.floor(i * step);
-            const j = Math.min(total - 1, base + Math.floor(Math.random() * Math.max(1, Math.floor(step))));
-            newPos[i*3+0] = pos.array[j*3+0];
-            newPos[i*3+1] = pos.array[j*3+1];
-            newPos[i*3+2] = pos.array[j*3+2];
-            if (newCol) {
-              newCol[i*3+0] = col.array[j*3+0];
-              newCol[i*3+1] = col.array[j*3+1];
-              newCol[i*3+2] = col.array[j*3+2];
-            }
-          }
-
-          const g = new THREE.BufferGeometry();
-          g.setAttribute("position", new THREE.BufferAttribute(newPos, 3));
-          if (newCol) g.setAttribute("color", new THREE.BufferAttribute(newCol, 3));
-          return g;
-        }
+    // AFRAMEが読めているかをチェック
+    const waitAFRAME = setInterval(() => {
+      if (window.AFRAME) {
+        clearInterval(waitAFRAME);
+        log("AFRAME detected");
+        boot();
       }
-    });
+    }, 100);
+
+    function boot(){
+      // ここで落ちるならHUDに出る
+      AFRAME.registerComponent("ply-pointcloud", {
+        schema: {
+          src: { type: "string", default: "./web-model.ply" },
+          scale: { type: "number", default: 0.01 },
+          pointSize: { type: "number", default: 0.02 },
+          maxPoints: { type: "int", default: 80000 }
+        },
+        init(){
+          log("component init: start loading PLY");
+          if (!window.THREE) { log("THREE missing"); return; }
+          if (!THREE.PLYLoader) { log("PLYLoader missing"); return; }
+
+          const loader = new THREE.PLYLoader();
+          loader.load(
+            this.data.src,
+            (geometry) => {
+              log("PLY loaded: vertices=" + geometry.attributes.position.count);
+
+              geometry.computeBoundingBox();
+              const c = new THREE.Vector3();
+              geometry.boundingBox.getCenter(c);
+              geometry.translate(-c.x, -c.y, -c.z);
+
+              // 間引き
+              let g = geometry;
+              const total = g.attributes.position.count;
+              if (total > this.data.maxPoints) {
+                g = downsample(g, this.data.maxPoints);
+                log("downsample: " + total + " -> " + g.attributes.position.count);
+              }
+
+              const mat = new THREE.PointsMaterial({ size: this.data.pointSize, vertexColors: g.hasAttribute("color") });
+              const pts = new THREE.Points(g, mat);
+              pts.scale.setScalar(this.data.scale);
+
+              this.el.object3D.add(pts);
+              log("points added. show marker.");
+            },
+            (xhr) => {
+              if (xhr && xhr.total) log("PLY loading " + Math.round(xhr.loaded/xhr.total*100) + "%");
+            },
+            (err) => {
+              log("PLY load error: " + (err?.message || err || "unknown"));
+            }
+          );
+
+          function downsample(src, target){
+            const pos = src.getAttribute("position");
+            const col = src.getAttribute("color");
+            const total = pos.count;
+            const step = total / target;
+
+            const newPos = new Float32Array(target * 3);
+            const newCol = col ? new Float32Array(target * 3) : null;
+
+            for (let i=0;i<target;i++){
+              const base = Math.floor(i * step);
+              const j = Math.min(total - 1, base + Math.floor(Math.random() * Math.max(1, Math.floor(step))));
+              newPos[i*3+0]=pos.array[j*3+0];
+              newPos[i*3+1]=pos.array[j*3+1];
+              newPos[i*3+2]=pos.array[j*3+2];
+              if (newCol){
+                newCol[i*3+0]=col.array[j*3+0];
+                newCol[i*3+1]=col.array[j*3+1];
+                newCol[i*3+2]=col.array[j*3+2];
+              }
+            }
+            const g = new THREE.BufferGeometry();
+            g.setAttribute("position", new THREE.BufferAttribute(newPos, 3));
+            if (newCol) g.setAttribute("color", new THREE.BufferAttribute(newCol, 3));
+            return g;
+          }
+        }
+      });
+      log("component registered");
+    }
   </script>
 </head>
 
 <body>
   <div id="hud">起動中…</div>
 
-  <a-scene
-    embedded
-    vr-mode-ui="enabled:false"
-    renderer="antialias:true; colorManagement:true"
-    arjs="sourceType: webcam; debugUIEnabled:false;"
-  >
-    <a-entity light="type: ambient; intensity: 1.0"></a-entity>
-
+  <a-scene embedded vr-mode-ui="enabled:false" arjs="sourceType: webcam; debugUIEnabled:false;">
     <a-marker type="pattern" url="./default-marker.patt">
-      <a-entity
-        ply-pointcloud="
-          src: ./web-model.ply;
-          scale: 0.01;
-          pointSize: 0.02;
-          color: #ffffff;
-          maxPoints: 80000;
-          rotateX: 0;
-        "
-        position="0 0 0"
-      ></a-entity>
+      <a-entity ply-pointcloud="src: ./web-model.ply; scale: 0.01; pointSize: 0.02; maxPoints: 80000"></a-entity>
     </a-marker>
-
     <a-entity camera></a-entity>
   </a-scene>
 </body>
 </html>
+
 
